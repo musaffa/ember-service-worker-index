@@ -101,7 +101,7 @@ function cacheFallbackFetch(event, fetchTimeout) {
       Rejection already happened with setTimeout
     */
     if(didTimeOut) {
-      return cacheFirstFetch();
+      return cacheFirstFetch(event);
     }
   });
 }
