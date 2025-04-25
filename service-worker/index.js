@@ -18,11 +18,11 @@ const INDEX_HTML_URL = new URL(INDEX_HTML_PATH, self.location).toString();
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    fetch(INDEX_HTML_URL, { credentials: 'include' }).then((response) => {
-      return caches
-        .open(CACHE_NAME)
-        .then((cache) => cache.put(INDEX_HTML_URL, response));
-    })
+    (async () => {
+      const response = await fetch(INDEX_HTML_URL, { credentials: 'include' });
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(INDEX_HTML_URL, response);
+    })()
   );
 });
 
@@ -42,70 +42,53 @@ self.addEventListener('fetch', (event) => {
   let isTests = url.pathname === '/tests' && ENVIRONMENT === 'development';
 
   if (!isTests && isGETRequest && isHTMLRequest && isLocal && scopeIncluded && !scopeExcluded) {
-    if (STRATEGY === 'fallback') {
-      event.respondWith(cacheFallbackFetch(TIMEOUT));
-    } else {
-      event.respondWith(cacheFirstFetch());
-    }
+    event.respondWith(handleFetch());
   }
 });
 
-function cacheFirstFetch() {
-  return caches.match(INDEX_HTML_URL, { cacheName: CACHE_NAME })
-    .then((response) => {
-      if (response) {
-        return response;
-      }
-
-      /**
-        Re-fetch the resource in the event that the cache had been cleared
-        (mostly an issue with Safari 11.1 where clearing the cache causes
-        the browser to throw a non-descriptive blank error page).
-      */
-      return fetch(INDEX_HTML_URL, { credentials: 'include' })
-        .then((fetchedResponse) => {
-          caches.open(CACHE_NAME).then((cache) => cache.put(INDEX_HTML_URL, fetchedResponse));
-          return fetchedResponse.clone();
-        });
-    });
+async function handleFetch() {
+  return STRATEGY === 'fallback'
+    ? await cacheFallbackFetch(TIMEOUT)
+    : await cacheFirstFetch();
 }
 
-function cacheFallbackFetch(fetchTimeout) {
-  const FETCH_TIMEOUT = fetchTimeout;
-  let didTimeOut = false;
+async function cacheFirstFetch() {
+  const response = await caches.match(INDEX_HTML_URL, { cacheName: CACHE_NAME });
 
-  return new Promise(function(_resolve, reject) {
-    const timeout = setTimeout(function() {
-      didTimeOut = true;
+  if (response) {
+    return response;
+  }
+
+  // Re-fetch in case the cache has been cleared
+  const fetchedResponse = await fetch(INDEX_HTML_URL, { credentials: 'include' });
+  const cache = await caches.open(CACHE_NAME);
+  cache.put(INDEX_HTML_URL, fetchedResponse.clone());
+
+  return fetchedResponse;
+}
+
+async function cacheFallbackFetch(timeout) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
       reject(new Error('Request timed out'));
-    }, FETCH_TIMEOUT);
-
-    return fetch(INDEX_HTML_URL, { credentials: 'include' })
-    .then(function(response) {
-      /**
-        Clear the timeout as cleanup
-      */
-      clearTimeout(timeout);
-      if(!didTimeOut) {
-        caches.open(CACHE_NAME).then((cache) => cache.put(INDEX_HTML_URL, response));
-        return response.clone();
-      }
-    })
-    .catch(function(err) {
-      reject(err);
-    });
-  })
-  .catch(function(_err) {
-    /**
-      Rejection already happened with setTimeout
-    */
-    if(didTimeOut) {
-      return cacheFirstFetch();
-    }
-
-    return new Response('Network error happened', {
-      status: 408,
-      headers: { 'Content-Type': 'text/plain' }
-    });
+    }, timeout);
   });
+
+  try {
+    const response = await Promise.race([
+      fetch(INDEX_HTML_URL, { credentials: 'include' }),
+      timeoutPromise
+    ]);
+
+    clearTimeout(timeoutId); // cleanup
+
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(INDEX_HTML_URL, response.clone());
+
+    return response;
+  } catch (error) {
+    return cacheFirstFetch();
+  }
 }
