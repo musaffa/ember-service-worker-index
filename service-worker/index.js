@@ -42,40 +42,39 @@ self.addEventListener('fetch', (event) => {
   let isTests = url.pathname === '/tests' && ENVIRONMENT === 'development';
   if (!isTests && isGETRequest && isHTMLRequest && isLocal && scopeIncluded && !scopeExcluded) {
     if (STRATEGY === 'fallback') {
-      cacheFallbackFetch(event, TIMEOUT);
+      return event.respondWith(cacheFallbackFetch(TIMEOUT));
     }
     else {
-      return cacheFirstFetch(event);
+      return event.respondWith(cacheFirstFetch());
     }
   }
 });
 
-function cacheFirstFetch(event) {
-  return event.respondWith(
-    caches.match(INDEX_HTML_URL, { cacheName: CACHE_NAME })
-      .then((response) => {
-        if (response) {
-          return response;
-        }
+function cacheFirstFetch() {
+  return caches.match(INDEX_HTML_URL, { cacheName: CACHE_NAME })
+    .then((response) => {
+      if (response) {
+        return response;
+      }
 
-        /**
-          Re-fetch the resource in the event that the cache had been cleared
-          (mostly an issue with Safari 11.1 where clearing the cache causes
-          the browser to throw a non-descriptive blank error page).
-        */
-        return fetch(INDEX_HTML_URL, { credentials: 'include' })
-          .then((fetchedResponse) => {
-            caches.open(CACHE_NAME).then((cache) => cache.put(INDEX_HTML_URL, fetchedResponse));
-            return fetchedResponse.clone();
-          });
-      })
-  );
+      /**
+        Re-fetch the resource in the event that the cache had been cleared
+        (mostly an issue with Safari 11.1 where clearing the cache causes
+        the browser to throw a non-descriptive blank error page).
+      */
+      return fetch(INDEX_HTML_URL, { credentials: 'include' })
+        .then((fetchedResponse) => {
+          caches.open(CACHE_NAME).then((cache) => cache.put(INDEX_HTML_URL, fetchedResponse));
+          return fetchedResponse.clone();
+        });
+    });
 }
 
-function cacheFallbackFetch(event, fetchTimeout) {
+function cacheFallbackFetch(fetchTimeout) {
   const FETCH_TIMEOUT = fetchTimeout;
   let didTimeOut = false;
-  new Promise(function(_resolve, reject) {
+
+  return new Promise(function(_resolve, reject) {
     const timeout = setTimeout(function() {
       didTimeOut = true;
       reject(new Error('Request timed out'));
@@ -96,12 +95,17 @@ function cacheFallbackFetch(event, fetchTimeout) {
       reject(err);
     });
   })
-  .catch(function(err) {
+  .catch(function(_err) {
     /**
       Rejection already happened with setTimeout
     */
     if(didTimeOut) {
-      return cacheFirstFetch(event);
+      return cacheFirstFetch();
     }
+
+    return new Response('Network error happened', {
+      status: 408,
+      headers: { 'Content-Type': 'text/plain' }
+    });
   });
 }
