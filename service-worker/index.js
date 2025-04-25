@@ -40,12 +40,12 @@ self.addEventListener('fetch', (event) => {
   let scopeExcluded = urlMatchesAnyPattern(request.url, INDEX_EXCLUDE_SCOPE);
   let scopeIncluded = !INDEX_INCLUDE_SCOPE.length || urlMatchesAnyPattern(request.url, INDEX_INCLUDE_SCOPE);
   let isTests = url.pathname === '/tests' && ENVIRONMENT === 'development';
+
   if (!isTests && isGETRequest && isHTMLRequest && isLocal && scopeIncluded && !scopeExcluded) {
     if (STRATEGY === 'fallback') {
-      return event.respondWith(cacheFallbackFetch(TIMEOUT));
-    }
-    else {
-      return event.respondWith(cacheFirstFetch());
+      event.respondWith(cacheFallbackFetch(TIMEOUT));
+    } else {
+      event.respondWith(cacheFirstFetch());
     }
   }
 });
